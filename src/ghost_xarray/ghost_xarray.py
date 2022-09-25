@@ -113,7 +113,13 @@ def load_scalar_timeseries(
             )
         )
     t = dt * np.array(t, dtype=float)
-    return xarray.concat(arrays, dim=xarray.IndexVariable("t", t))
+    return xarray.concat(
+        arrays,
+        dim=xarray.IndexVariable("t", t),
+        coords="all",
+        compat="override",
+        join="override",
+    )
 
 
 def load_vector_timeseries(
@@ -138,7 +144,13 @@ def load_vector_timeseries(
         )
         for i in component_names
     ]
-    return xarray.concat(components, dim=xarray.IndexVariable("i", component_names))
+    return xarray.concat(
+        components,
+        dim=xarray.IndexVariable("i", component_names),
+        coords="all",
+        compat="override",
+        join="override",
+    )
 
 
 def load_dataset(
