@@ -130,7 +130,7 @@ def load_scalar_timeseries(
                 dtype=dtype,
             )
         )
-    t = dt * np.array(t, dtype=float)
+    t = dt * (np.array(t, dtype=float) - 1)
     return xarray.concat(
         arrays,
         dim=xarray.IndexVariable("t", t),
