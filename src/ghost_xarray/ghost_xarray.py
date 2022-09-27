@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cached_property
 from pathlib import Path
 
 import numpy as np
@@ -61,15 +62,37 @@ class BinaryBackend(xarray.backends.BackendEntrypoint):
         return xarray.Dataset({name: var}, coords=coords)
 
 
-def _normalize_coords(
-    coords: tuple[int] | dict[str, np.ndarray],
-) -> dict[str, np.ndarray]:
-    if isinstance(coords, dict):
-        return coords
-    elif isinstance(coords, tuple):
+class Coords:
+    coords_names: list[str]
+
+    def __new__(cls, coords: Coords):
+        if isinstance(coords, Coords):
+            return coords
+        return super().__new__(cls)
+
+    def __init__(self, coords: tuple[int] | dict[str, np.ndarray]):
+        if isinstance(coords, Coords):
+            return
+
+        if len(coords) == 2:
+            self.coord_names = ["x", "y"]
+        elif len(coords) == 3:
+            self.coord_names = ["x", "y", "z"]
+
+        if isinstance(coords, tuple):
+            self.as_tuple = coords
+        elif isinstance(coords, dict):
+            self.as_dict = coords
+
+    @cached_property
+    def as_tuple(self) -> tuple[int]:
+        return tuple(self.as_dict[i].size for i in self.coord_names)
+
+    @cached_property
+    def as_dict(self):
         return {
-            name: np.linspace(0, 2 * np.pi, size, endpoint=False)
-            for name, size in zip("xyz", coords)
+            k: np.linspace(0, 2 * np.pi, v, endpoint=False)
+            for k, v in zip("xyz", self.as_tuple)
         }
 
 
@@ -80,11 +103,12 @@ def load_scalar(
     dtype: np.dtype,
     chunks: int | dict[str, int] = None,
 ):
+    coords: Coords = Coords(coords)
     return xarray.open_dataarray(
         file,
         engine=BinaryBackend,
         chunks=chunks,
-        coords=_normalize_coords(coords),
+        coords=coords.as_dict,
         dtype=dtype,
     )
 
@@ -98,7 +122,7 @@ def load_scalar_timeseries(
     dtype: np.dtype,
     chunks: int | dict[str, int] = None,
 ):
-    coords = _normalize_coords(coords)
+    coords = Coords(coords)
     files = Path(directory).glob(f"{name}.*.out")
     t, arrays = [], []
     for file in sorted(files):
@@ -131,8 +155,7 @@ def load_vector_timeseries(
     dtype: np.dtype,
     chunks: int | dict[str, int] = None,
 ):
-    coords = _normalize_coords(coords)
-    component_names = list(coords.keys())
+    coords: Coords = Coords(coords)
     components = [
         load_scalar_timeseries(
             directory,
@@ -142,11 +165,11 @@ def load_vector_timeseries(
             chunks=chunks,
             dtype=dtype,
         )
-        for i in component_names
+        for i in coords.coord_names
     ]
     return xarray.concat(
         components,
-        dim=xarray.IndexVariable("i", component_names),
+        dim=xarray.IndexVariable("i", coords.coord_names),
         coords="all",
         compat="override",
         join="override",
@@ -162,7 +185,7 @@ def load_dataset(
     dtype: np.dtype,
     chunks: int | dict[str, int] = None,
 ):
-    coords = _normalize_coords(coords)
+    coords = Coords(coords)
     return xarray.Dataset(
         {
             name: load_vector_timeseries(
