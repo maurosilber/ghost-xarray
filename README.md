@@ -112,3 +112,28 @@ data = ghost_xarray.load_dataset(
 h = (data.v * data.w).sum(dim="i")  # computes the sum along components (dimension "i").
 h.isel(t=slice(0, 4)).plot(col="t")  # plots the first 4 timepoints
 ```
+
+## Delayed loading with Dask
+
+By adding the `chunks` parameter,
+delays loading the dataset,
+and builds a dask graph instead.
+Operations are performed lazily:
+
+```python
+data = ghost_xarray.load_dataset(
+    "path/to/directory/",
+    names=["v", "w"],
+    dt=0.5,
+    coords=(128, 128),
+    dtype=np.float32,
+    chunks={},
+)
+
+v_sum = data.v.isel(i="x", t=0).mean(dim=["x", "y"])  # lazy
+v_sum = v_sum.compute()  # performs the actual calculation
+```
+
+In the above example,
+only the `vx` component at `t=0` will be loaded,
+and averaged in the `x-y` coordinates.
