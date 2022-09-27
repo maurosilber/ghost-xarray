@@ -40,26 +40,20 @@ class BinaryBackend(xarray.backends.BackendEntrypoint):
         *,
         drop_variables=None,
         name: str = None,
-        coords: dict[str, np.ndarray],
+        coords: Coords,
         dtype: np.dtype,
     ):
-        if len(coords) == 2:
-            coord_order = ["x", "y"]
-        elif len(coords) == 3:
-            coord_order = ["x", "y", "z"]
-        else:
-            raise ValueError("len(coords) must be 2 or 3.")
-
         if name is None:
             name = str(file)
+
         backend_array = BinaryBackendArray(
             file=file,
-            shape=tuple(coords[i].size for i in coord_order),
+            shape=coords.as_tuple,
             dtype=dtype,
         )
         data = xarray.core.indexing.LazilyIndexedArray(backend_array)
-        var = xarray.Variable(dims=coord_order, data=data)
-        return xarray.Dataset({name: var}, coords=coords)
+        var = xarray.Variable(dims=coords.coord_names, data=data)
+        return xarray.Dataset({name: var})
 
 
 class Coords:
@@ -108,9 +102,9 @@ def load_scalar(
         file,
         engine=BinaryBackend,
         chunks=chunks,
-        coords=coords.as_dict,
+        coords=coords,
         dtype=dtype,
-    )
+    ).assign_coords(coords.as_dict)
 
 
 def load_scalar_timeseries(
