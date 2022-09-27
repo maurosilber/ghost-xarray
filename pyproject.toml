@@ -20,6 +20,7 @@ classifiers = [
 dependencies = [
     "numpy",
     "xarray",
+    "cached_property; python_version < '3.8'",
 ]
 dynamic = ["version"]
 
