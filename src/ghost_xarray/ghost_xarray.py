@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import defaultdict
+from typing import Iterable
+
 try:
     from functools import cached_property
 except ImportError:
@@ -7,6 +10,7 @@ except ImportError:
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import xarray
 import xarray.backends
 
@@ -42,160 +46,138 @@ class BinaryBackendArray(xarray.backends.BackendArray):
 class BinaryBackend(xarray.backends.BackendEntrypoint):
     def open_dataset(
         self,
-        file,
+        file: Path,
         *,
         drop_variables=None,
         name: str = None,
-        coords: Coords,
+        shape: tuple[int],
+        dims: tuple[str],
         dtype: np.dtype,
     ):
         if name is None:
-            name = str(file)
+            name = file.stem.split(".", maxsplit=1)[0]
 
         backend_array = BinaryBackendArray(
             file=file,
-            shape=coords.as_tuple,
+            shape=shape,
             dtype=dtype,
         )
         data = xarray.core.indexing.LazilyIndexedArray(backend_array)
-        var = xarray.Variable(dims=coords.coord_names, data=data)
-        return xarray.Dataset({name: var})
+        return xarray.Dataset({name: (dims, data)})
 
 
-class Coords:
-    coords_names: list[str]
+def _build_filelist(directory: str | Path, variable_name: str) -> pd.DataFrame:
+    """Builds a DataFrame of the files found in the given directory
+    for the specified variable_name, with a row for each timepoint.
 
-    def __new__(cls, coords: Coords):
-        if isinstance(coords, Coords):
-            return coords
-        return super().__new__(cls)
+    >>> _build_filelist("/my_dir", "vx")
+        1   /my_dir/vx.0001.out
+        2   /my_dir/vx.0002.out
+        ...
 
-    def __init__(self, coords: tuple[int] | dict[str, np.ndarray]):
-        if isinstance(coords, Coords):
-            return
+    >>> _build_filelist("/my_dir", "v")
+            x                    y
+        1   /my_dir/vx.0001.out  /my_dir/vx.0001.out
+        2   /my_dir/vx.0002.out  /my_dir/vy.0002.out
+        ...
+    """
+    files = defaultdict(dict)
+    for file in Path(directory).glob(f"{variable_name}*"):
+        name, _, time = file.stem.partition(".")
+        name = name.removeprefix(variable_name)
+        files[name][int(time)] = file
+    return pd.DataFrame(files).sort_index()
 
-        if len(coords) == 2:
-            self.coord_names = ["x", "y"]
-        elif len(coords) == 3:
-            self.coord_names = ["x", "y", "z"]
 
-        if isinstance(coords, tuple):
-            self.as_tuple = coords
-        elif isinstance(coords, dict):
-            self.as_dict = coords
+def _normalize_coords(
+    shape: tuple[int] | dict[str, np.ndarray]
+) -> tuple[tuple[int], dict[str, np.ndarray]]:
+    """Returns a shape tuple for a given dict of coordinates,
+    or generates a dict of coordinates from a shape tuple.
 
-    @cached_property
-    def as_tuple(self) -> tuple[int]:
-        return tuple(self.as_dict[i].size for i in self.coord_names)
-
-    @cached_property
-    def as_dict(self):
-        return {
-            k: np.linspace(0, 2 * np.pi, v, endpoint=False)
-            for k, v in zip("xyz", self.as_tuple)
+    The generated coordinates are equispaced between [0, 2π).
+    """
+    if isinstance(shape, dict):
+        coords = shape
+        shape = []
+        for name in ("x", "y", "z"):
+            try:
+                shape.append(coords[name].size)
+            except KeyError:
+                pass
+        shape = tuple(shape)
+    else:
+        coords = {
+            name: np.linspace(0, 2 * np.pi, size, endpoint=False)
+            for name, size in zip(("x", "y", "z"), shape)
         }
 
+    return shape, coords
 
-def load_scalar(
-    file: str | Path,
+
+def open_dataarray(
+    directory: str | Path,
+    name: str,
     *,
-    coords: tuple[int] | dict[str, np.ndarray],
+    dt: float,
+    shape: tuple[int] | dict[str, np.ndarray],
     dtype: np.dtype,
-    chunks: int | dict[str, int] = None,
-):
-    coords: Coords = Coords(coords)
-    return xarray.open_dataarray(
-        file,
+) -> xarray.DataArray:
+    """Opens a variable as an xarray.DataArray."""
+    shape, coords = _normalize_coords(shape)
+
+    if len(shape) == 2:
+        dims = ("x", "y")
+    elif len(shape) == 3:
+        dims = ("x", "y", "z")
+    else:
+        raise ValueError
+
+    filelist = _build_filelist(directory, name)
+
+    # GHOST numbers the timepoints from 1.
+    coords["t"] = dt * (filelist.index - 1)
+
+    # If the filelist contains more then one column,
+    # they are assumed to be the vector components,
+    # and are concatenated along the "i" dimension.
+    if len(filelist.columns) == 1:
+        filelist = filelist.squeeze()
+        concat_dim = ["t"]
+    else:
+        concat_dim = ["t", "i"]
+        coords["i"] = filelist.columns
+
+    dataset = xarray.open_mfdataset(
+        filelist.values.tolist(),
         engine=BinaryBackend,
-        chunks=chunks,
-        coords=coords,
+        name=name,
+        shape=shape,
+        dims=dims,
         dtype=dtype,
-    ).assign_coords(coords.as_dict)
-
-
-def load_scalar_timeseries(
-    directory: str | Path,
-    name: str,
-    *,
-    dt: float,
-    coords: tuple[int] | dict[str, np.ndarray],
-    dtype: np.dtype,
-    chunks: int | dict[str, int] = None,
-):
-    coords = Coords(coords)
-    files = Path(directory).glob(f"{name}.*.out")
-    t, arrays = [], []
-    for file in sorted(files):
-        _, ti = file.stem.split(".")
-        t.append(ti)
-        arrays.append(
-            load_scalar(
-                file,
-                coords=coords,
-                chunks=chunks,
-                dtype=dtype,
-            )
-        )
-    t = dt * (np.array(t, dtype=float) - 1)
-    return xarray.concat(
-        arrays,
-        dim=xarray.IndexVariable("t", t),
-        coords="all",
-        compat="override",
-        join="override",
+        concat_dim=concat_dim,
+        combine="nested",
     )
+    dataarray = dataset.get(name).assign_coords(coords)
+    return dataarray
 
 
-def load_vector_timeseries(
+def open_dataset(
     directory: str | Path,
-    name: str,
+    names: Iterable[str],
     *,
     dt: float,
-    coords: tuple[int] | dict[str, np.ndarray],
+    shape: tuple[int] | dict[str, np.ndarray],
     dtype: np.dtype,
-    chunks: int | dict[str, int] = None,
-):
-    coords: Coords = Coords(coords)
-    components = [
-        load_scalar_timeseries(
+) -> xarray.Dataset:
+    """Opens multiple variables as an xarray.Dataset."""
+    return xarray.merge(
+        open_dataarray(
             directory,
-            name=f"{name}{i}",
+            name,
             dt=dt,
-            coords=coords,
-            chunks=chunks,
+            shape=shape,
             dtype=dtype,
         )
-        for i in coords.coord_names
-    ]
-    return xarray.concat(
-        components,
-        dim=xarray.IndexVariable("i", coords.coord_names),
-        coords="all",
-        compat="override",
-        join="override",
-    )
-
-
-def load_dataset(
-    directory: str | Path,
-    names: list[str],
-    *,
-    dt: float,
-    coords: tuple[int] | dict[str, np.ndarray],
-    dtype: np.dtype,
-    chunks: int | dict[str, int] = None,
-):
-    coords = Coords(coords)
-    return xarray.Dataset(
-        {
-            name: load_vector_timeseries(
-                directory,
-                name,
-                dt=dt,
-                coords=coords,
-                chunks=chunks,
-                dtype=dtype,
-            )
-            for name in names
-        }
+        for name in names
     )
