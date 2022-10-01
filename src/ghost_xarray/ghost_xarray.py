@@ -16,7 +16,10 @@ class BinaryBackendArray(xarray.backends.BackendArray):
         self.file = file
         self.shape = shape
         self.dtype = dtype
-        self.array = np.memmap(
+
+    @cached_property
+    def array(self):
+        return np.memmap(
             self.file,
             mode="c",  # copy-on-write
             dtype=self.dtype,
