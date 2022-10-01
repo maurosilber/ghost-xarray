@@ -66,6 +66,13 @@ class BinaryBackend(xarray.backends.BackendEntrypoint):
         return xarray.Dataset({name: (dims, data)})
 
 
+def _removeprefix(line: str, prefix: str):
+    # On Python >= 3.9, we could use str.removeprefix
+    if line.startswith(prefix):
+        line = line[len(prefix) :]
+    return line
+
+
 def _build_filelist(directory: str | Path, variable_name: str) -> pd.DataFrame:
     """Builds a DataFrame of the files found in the given directory
     for the specified variable_name, with a row for each timepoint.
@@ -84,7 +91,7 @@ def _build_filelist(directory: str | Path, variable_name: str) -> pd.DataFrame:
     files = defaultdict(dict)
     for file in Path(directory).glob(f"{variable_name}*"):
         name, _, time = file.stem.partition(".")
-        name = name.removeprefix(variable_name)
+        name = _removeprefix(name, variable_name)
         files[name][int(time)] = file
     return pd.DataFrame(files).sort_index()
 
