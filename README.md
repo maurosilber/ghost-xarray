@@ -15,73 +15,60 @@ pip install ghost-xarray
 
 ## Usage
 
-GHOST-xarray provides 4 functions:
+GHOST-xarray provides 2 functions:
 
-- load_scalar
-- load_scalar_timeseries
-- load_vector_timeseries
-- load_dataset
+- `open_dataarray`, which opens a single variable,
+- `open_dataset`, which opens multiple variables.
 
-To load a scalar at a particular timepoint,
-`load_scalar` needs
-its filename,
-the coordinates
-and the datatype:
+`open_dataarray` needs:
+a directory, a variable name,
+and its timestep `dt`, shape and datatype:
 
 ```python
 import ghost_xarray
-import numpy as np
 
-vx = ghost_xarray.load_scalar(
-    "path/to/file/vx.0001.out",
-    coords=dict(
-        x=np.linspace(0, 2 * np.pi, 128, endpoint=False),
-        y=np.linspace(0, 2 * np.pi, 128, endpoint=False),
-    ),
-    dtype=np.float32,
-)
-vx.plot()  # makes a 2D imshow
-```
-
-Coordinates can also be a tuple of `int`s,
-in which case it generates the corresponding coordinates
-as `np.linspace(0, 2 * np.pi, N, endpoint=False)`:
-
-```python
-vx = ghost_xarray.load_scalar(
-    "path/to/file/vx.0001.out",
-    coords=(128, 128, 128),  # 3D dataset
-    dtype=np.float32,
-)
-vx.isel(y=64).plot()  # select a slice at the index 64 of y and plot (a 2D imshow).
-```
-
-![A plot of the x-component of the velocity.](figures/vx.png)
-
-To load a scalar timeseries,
-`load_scalar_timeseries` needs
-a directory and the variable name,
-the timestep `dt`,
-and the coordinate and datatype as before:
-
-```python
-vx = ghost_xarray.load_scalar_timeseries(
+vx = ghost_xarray.open_dataarray(
     "path/to/directory",
-    name="vx",
+    "vx",
     dt=0.5,
-    coords=(128, 128),
+    shape=(128, 128, 128),
     dtype=np.float32,
 )
-vx.sel(t=1.5).plot()  # makes a 2D imshow of the x-z plane at t=1.5.
+vx.isel(t=0, y=64).plot()  # isel selects by index position
 ```
 
-where time dimension is named `"t"`.
+![A plot of the x-component of the velocity at t=0.](figures/vx.png)
 
-For a vector timeseries,
-it is analogous:
+By default,
+it generates the corresponding coordinates
+from the `shape` parameter
+as `np.linspace(0, 2 * np.pi, shape[i], endpoint=False)`.
+But `shape` can also be a dictionary of `np.ndarray` with explicit coordinates:
 
 ```python
-v = ghost_xarray.load_vector_timeseries(
+vx = ghost_xarray.open_dataarray(
+    "path/to/directory",
+    "vx",
+    dt=0.5,
+    shape=dict(x=np.linspace(0, 10, 64), y=np.linspace(0, 100, 11)),
+    dtype=np.float32,
+)
+v_average = vx.isel(t=0).sel(y=50).mean(dim="x")  # sel selects by coordinate
+v_average.compute()
+```
+
+All operations are lazy,
+until `.compute()` or `.plot()` are called.
+Hence,
+the above example only loads a single file to memory,
+instead of actually loading data for all times.
+
+For a vector-valued variable,
+it adds an additional `i` dimension,
+corresponding to `x, y[, z]`:
+
+```python
+v = ghost_xarray.open_dataarray(
     "path/to/directory",
     name="v",
     dt=0.5,
@@ -93,47 +80,22 @@ v.isel(y=64).sel(t=1.5).plot(col="i")  # makes three 2D imshows, one for each co
 
 ![A plot for each component of the velocity.](figures/v.png)
 
-adding an additional dimension named `"i"` for each vector component.
-
 Finally,
-`load_dataset` loads several variables
+`open_dataset` opens several variables
 into a `xarray.Dataset`,
 which provides a dict-like interface.
 
 ```python
-data = ghost_xarray.load_dataset(
+data = ghost_xarray.open_dataset(
     "path/to/directory/",
     names=["v", "w"],
     dt=0.5,
-    coords=(128, 128),
+    coords=(128, 128, 128),
     dtype=np.float32,
 )
 
 h = (data.v * data.w).sum(dim="i")  # computes the sum along components (dimension "i").
-h.isel(t=slice(0, 4)).plot(col="t")  # plots the first 4 timepoints
+h.isel(t=slice(0, 4), x=64).plot(col="t")  # plots the first 4 timepoints
 ```
 
-## Delayed loading with Dask
-
-By adding the `chunks` parameter,
-delays loading the dataset,
-and builds a dask graph instead.
-Operations are performed lazily:
-
-```python
-data = ghost_xarray.load_dataset(
-    "path/to/directory/",
-    names=["v", "w"],
-    dt=0.5,
-    coords=(128, 128),
-    dtype=np.float32,
-    chunks={},
-)
-
-v_sum = data.v.isel(i="x", t=0).mean(dim=["x", "y"])  # lazy
-v_sum = v_sum.compute()  # performs the actual calculation
-```
-
-In the above example,
-only the `vx` component at `t=0` will be loaded,
-and averaged in the `x-y` coordinates.
+![Plot of the helicity for multiple timepoints.](figures/h.png)
