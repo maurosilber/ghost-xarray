@@ -18,6 +18,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "dask",
     "numpy",
     "xarray",
     "cached_property; python_version < '3.8'",
