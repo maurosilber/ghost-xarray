@@ -105,7 +105,7 @@ def _normalize_coords(
     The generated coordinates are equispaced between [0, 2π).
     """
     if isinstance(shape, dict):
-        coords = shape
+        coords = shape.copy()  # Copy, as it will be modified in-place later.
         shape = []
         for name in ("x", "y", "z"):
             try:
