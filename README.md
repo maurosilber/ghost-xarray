@@ -4,8 +4,51 @@ GHOST-xarray provides helper functions
 to load output files from
 [GHOST](https://github.com/pmininni/GHOST)
 (the Geophysical High-Order Suite for Turbulence)
-into [xarray](https://github.com/pydata/xarray)
+into [xarray](https://xarray.dev/)
 labelled multidimensional arrays.
+
+## Why should I use xarray?
+
+`xarray` provides two abstractions on top of NumPy arrays:
+labeled dimensions
+and coordinates.
+
+With labeled dimensions,
+this operation:
+
+```python
+y = x[:, 3]  # select y=3
+y.sum(1)  # sum over z, which was axis 2 before
+```
+
+becomes this:
+
+```python
+y = x.isel(y=3)  # isel means index selection
+y.sum("z")
+```
+
+We do not have to track which axis belong to which physical dimension.
+
+Coordinates are an extension of
+[pandas](https://pandas.pydata.org/)
+indexes,
+which allow to index by "physical" location:
+
+```python
+t = np.array([0, 10, 20, 30])
+x = np.array([0, 1, 2, 3])
+
+x_with_coords = xarray.DataArray(x, coords={"t": t})
+
+x_with_coords.isel(t=1)  # Select by index position
+x_with_coords.sel(t=10)  # Select by coordinate
+```
+
+Among many niceties,
+which can be read in its [documentation](https://xarray.dev/),
+`xarray` provides several conveniences for plotting,
+some of which are shown below.
 
 ## Installation
 
