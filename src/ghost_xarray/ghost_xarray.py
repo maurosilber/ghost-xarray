@@ -113,11 +113,13 @@ def _normalize_coords(
             except KeyError:
                 pass
         shape = tuple(shape)
-    else:
+    elif isinstance(shape, tuple):
         coords = {
             name: np.linspace(0, 2 * np.pi, size, endpoint=False)
             for name, size in zip(("x", "y", "z"), shape)
         }
+    else:
+        raise TypeError("shape must be a tuple[int] or dict[str, np.ndarray].")
 
     return shape, coords
 
