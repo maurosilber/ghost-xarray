@@ -6,7 +6,7 @@ from typing import Iterable
 import numpy as np
 import pytest
 
-import ghost_xarray
+from .. import ghost_xarray
 
 DTYPE = np.float64
 SIZE = 8
