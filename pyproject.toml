@@ -34,5 +34,6 @@ test = ["pytest"]
 
 [tool.setuptools_scm]
 
-[tool.isort]
-profile = "black"
+[tool.ruff]
+select = ["E", "F", "I"]
+ignore = ["E501"]
